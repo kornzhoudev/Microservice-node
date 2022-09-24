@@ -1,50 +1,54 @@
-import request from 'supertest';
-import { app } from '../app';
+import express, { Request, Response } from 'express';
+import { body } from 'express-validator';
+import { BadRequestError } from '../errors/bad-request-error';
+import { validateRequest } from '../middlewares/validate-request';
+import { User } from '../models/user';
+import { Password } from '../services/password';
+import jwt from 'jsonwebtoken';
 
-it('fails when an email that does not exist is supplied', async () => {
-  await request(app)
-    .post('/api/users/signin')
-    .send({
-      email: 'test@test.com',
-      password: 'password',
-    })
-    .expect(400);
-});
+const router = express.Router();
 
-it('fails when an incorrect password is supplied', async () => {
-  await request(app)
-    .post('/api/users/signup')
-    .send({
-      email: 'test@test.com',
-      password: 'password',
-    })
-    .expect(201);
+const invalidCredentialsError = 'Invalid credentials';
+router.post(
+  '/api/users/signin',
+  [
+    body('email').isEmail().withMessage('Email must be valid'),
+    body('password')
+      .trim()
+      .notEmpty()
+      .withMessage('You must supply a password'),
+  ],
+  validateRequest,
+  async (req: Request, res: Response) => {
+    const { email, password } = req.body;
 
-  await request(app)
-    .post('/api/users/signin')
-    .send({
-      email: 'test@test.com',
-      password: 'incorrectpassword',
-    })
-    .expect(400);
-});
+    const existingUser = await User.findOne({ email });
+    if (!existingUser) {
+      throw new BadRequestError(invalidCredentialsError);
+    }
 
-it('responds with a cookie when given valid credentials', async () => {
-  await request(app)
-    .post('/api/users/signup')
-    .send({
-      email: 'test@test.com',
-      password: 'password',
-    })
-    .expect(201);
+    const passwordsMatch = await Password.compare(
+      existingUser.password,
+      password
+    );
+    if (!passwordsMatch) {
+      throw new BadRequestError(invalidCredentialsError);
+    }
 
-  const response = await request(app)
-    .post('/api/users/signin')
-    .send({
-      email: 'test@test.com',
-      password: 'password',
-    })
-    .expect(200);
+    // generate JWT
+    const payload = {
+      id: existingUser.id,
+      email: existingUser.email,
+    };
+    const userJwt = jwt.sign(payload, process.env.JWT_KEY!);
 
-  expect(response.get('Set-Cookie')).toBeDefined();
-});
+    // store it on the session object
+    req.session = {
+      jwt: userJwt,
+    };
+
+    res.status(200).send(existingUser);
+  }
+);
+
+export { router as signinRouter };
