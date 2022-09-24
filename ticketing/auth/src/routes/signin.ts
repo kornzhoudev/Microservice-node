@@ -1,55 +1,50 @@
-import express, { Request, Response } from 'express';
-import { body } from 'express-validator';
-import jwt from 'jsonwebtoken';
+import request from 'supertest';
+import { app } from '../app';
 
-import { Password } from '../services/password';
-import { User } from '../models/user';
-import { validateRequest } from '../middlewares/validate-request';
-import { BadRequestError } from '../errors/bad-request-error';
+it('fails when an email that does not exist is supplied', async () => {
+  await request(app)
+    .post('/api/users/signin')
+    .send({
+      email: 'test@test.com',
+      password: 'password',
+    })
+    .expect(400);
+});
 
-const router = express.Router();
+it('fails when an incorrect password is supplied', async () => {
+  await request(app)
+    .post('/api/users/signup')
+    .send({
+      email: 'test@test.com',
+      password: 'password',
+    })
+    .expect(201);
 
-router.post(
-  '/api/users/signin',
-  [
-    body('email').isEmail().withMessage('Email must be valid'),
-    body('password')
-      .trim()
-      .notEmpty()
-      .withMessage('You must supply a password'),
-  ],
-  validateRequest,
-  async (req: Request, res: Response) => {
-    const { email, password } = req.body;
+  await request(app)
+    .post('/api/users/signin')
+    .send({
+      email: 'test@test.com',
+      password: 'incorrectpassword',
+    })
+    .expect(400);
+});
 
-    const existingUser = await User.findOne({ email });
-    if (!existingUser) {
-      throw new BadRequestError('Invalid credentials');
-    }
+it('responds with a cookie when given valid credentials', async () => {
+  await request(app)
+    .post('/api/users/signup')
+    .send({
+      email: 'test@test.com',
+      password: 'password',
+    })
+    .expect(201);
 
-    const passwordsMatch = await Password.compare(
-      existingUser.password,
-      password
-    );
+  const response = await request(app)
+    .post('/api/users/signin')
+    .send({
+      email: 'test@test.com',
+      password: 'password',
+    })
+    .expect(200);
 
-    if (!passwordsMatch) {
-      throw new BadRequestError('Invalid credentials');
-    }
-
-    // Generate JWT
-    const userJwt = jwt.sign(
-      {
-        id: existingUser.id,
-        email: existingUser.email,
-      },
-      process.env.JWT_KEY!
-    );
-
-    // Store it on session object
-    req.session = { jwt: userJwt };
-
-    res.status(200).send(existingUser);
-  }
-);
-
-export { router as signinRouter };
+  expect(response.get('Set-Cookie')).toBeDefined();
+});

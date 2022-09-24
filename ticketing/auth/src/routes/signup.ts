@@ -1,49 +1,78 @@
-import express, { Request, Response } from 'express';
-import { body } from 'express-validator';
-import jwt from 'jsonwebtoken';
+import request from 'supertest';
+import { app } from '../app';
 
-import { validateRequest } from '../middlewares/validate-request';
-import { User } from '../models/user';
-import { BadRequestError } from '../errors/bad-request-error';
+it('returns a 201 on successful signup', () => {
+  return request(app)
+    .post('/api/users/signup')
+    .send({
+      email: 'test@test.com',
+      password: 'password',
+    })
+    .expect(201);
+});
 
-const router = express.Router();
+it('returns a 400 with an invalid email', () => {
+  return request(app)
+    .post('/api/users/signup')
+    .send({
+      email: 'invalid.com',
+      password: 'password',
+    })
+    .expect(400);
+});
 
-router.post(
-  '/api/users/signup',
-  [
-    body('email').isEmail().withMessage('Email must be valid'),
-    body('password')
-      .trim()
-      .isLength({ min: 4, max: 20 })
-      .withMessage('Password must be between 4 and 20 characters'),
-  ],
-  validateRequest,
-  async (req: Request, res: Response) => {
-    const { email, password } = req.body;
+it('returns a 400 with an invalid password', () => {
+  return request(app)
+    .post('/api/users/signup')
+    .send({
+      email: 'test@test.com',
+      password: 'p',
+    })
+    .expect(400);
+});
 
-    const existingUser = await User.findOne({ email });
+it('returns a 400 with missing email and password', async () => {
+  await request(app)
+    .post('/api/users/signup')
+    .send({
+      password: 'password',
+    })
+    .expect(400);
 
-    if (existingUser) {
-      throw new BadRequestError('Email in use');
-    }
+  await request(app)
+    .post('/api/users/signup')
+    .send({
+      email: 'test@test.com',
+    })
+    .expect(400);
+});
 
-    const user = User.build({ email, password });
-    await user.save();
+it('disallows duplicate emails', async () => {
+  await request(app)
+    .post('/api/users/signup')
+    .send({
+      email: 'test@test.com',
+      password: 'password',
+    })
+    .expect(201);
 
-    // Generate JWT
-    const userJwt = jwt.sign(
-      {
-        id: user.id,
-        email: user.email,
-      },
-      process.env.JWT_KEY!
-    );
+  await request(app)
+    .post('/api/users/signup')
+    .send({
+      email: 'test@test.com',
+      password: 'password',
+    })
+    .expect(400);
+});
 
-    // Store it on session object
-    req.session = { jwt: userJwt };
+it('set a cookie after successful signup ', async () => {
+  const response = await request(app)
+    .post('/api/users/signup')
+    .send({
+      email: 'test@test.com',
+      password: 'password',
+    })
+    .expect(201);
 
-    res.status(201).send(user);
-  }
-);
-
-export { router as signupRouter };
+  expect(response.get('Set-Cookie')).toBeDefined();
+});

@@ -1,11 +1,23 @@
-import express from 'express';
+import request from 'supertest';
+import { app } from '../app';
 
-import { currentUser } from '../middlewares/current-user';
+it('responds with details about the current user', async () => {
+  const cookie = await signin();
 
-const router = express.Router();
+  const response = await request(app)
+    .get('/api/users/currentuser')
+    .set('Cookie', cookie)
+    .send()
+    .expect(200);
 
-router.get('/api/users/currentuser',currentUser,(req, res) => {
-  res.send({currentUser: req.currentUser || null});
+  expect(response.body.currentUser.email).toEqual('test@test.com');
 });
 
-export { router as currentUserRouter };
+it('responds with null if not authenticated ', async () => {
+  const response = await request(app)
+    .get('/api/users/currentuser')
+    .send()
+    .expect(200);
+
+  expect(response.body.currentUser).toBeNull();
+});
